@@ -1,0 +1,23 @@
+# Render Blueprint — New → Blueprint → pick this repo. Paste your Gemini API key when asked.
+services:
+  - type: web
+    name: prompt2process
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false            # secret: entered in the Render dashboard, never committed
+      - key: GEMMA_MODEL
+        value: gemma-4-26b-a4b-it
+      - key: GEMMA_VISION_MODEL
+        value: gemma-4-31b-it
+      - key: GEMMA_DEEP_MODEL
+        value: gemma-4-26b-a4b-it
+      - key: GEMMA_THINKING
+        value: minimal
+      - key: GEMMA_THINKING_DEEP
+        value: minimal
+      - key: LLM_MODE
+        value: auto

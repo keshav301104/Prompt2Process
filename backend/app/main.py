@@ -534,10 +534,11 @@ if config.FRONTEND_DIST.exists():
 
     @app.get("/{path:path}", include_in_schema=False)
     def spa(path: str):
-        f = config.FRONTEND_DIST / path
-        if path and f.is_file():
+        dist = config.FRONTEND_DIST.resolve()
+        f = (dist / path).resolve()
+        if path and f.is_file() and f.is_relative_to(dist):  # never serve files outside the built console
             return FileResponse(f)
-        return FileResponse(config.FRONTEND_DIST / "index.html")
+        return FileResponse(dist / "index.html")
 else:
 
     @app.get("/", include_in_schema=False)
