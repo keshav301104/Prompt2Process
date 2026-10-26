@@ -3,6 +3,7 @@
 Runs 8 checks before anything executes. Errors are precise ("[s8] ...") so they can be fed back to the
 model for automatic repair, and shown to the manager.
 """
+
 import difflib
 import re
 
@@ -14,9 +15,35 @@ from .schema import Plan
 
 ALLOWED_FALLBACKS = {None, "escalate_to_human", "skip"}
 SCOPE_FIELDS = {
-    "task": {"file": "str", "id": "str", "title": "str", "customer_id": "str", "case_id": "str", "files": "list"},
-    "company": {"name": "str", "gstin": "str", "state_code": "str", "city": "str", "finance_manager": "str",
-                "cfo": "str", "sales_manager": "str"},
+    "task": {
+        "file": "str",
+        "id": "str",
+        "title": "str",
+        "customer_id": "str",
+        "case_id": "str",
+        "files": "list",
+        "folder": "str",
+    },
+    "company": {
+        "name": "str",
+        "legal_name": "str",
+        "industry": "str",
+        "gstin": "str",
+        "state_code": "str",
+        "city": "str",
+        "currency": "str",
+        "people": "dict",
+    },
+    "org": {
+        "name": "str",
+        "legal_name": "str",
+        "industry": "str",
+        "gstin": "str",
+        "state_code": "str",
+        "city": "str",
+        "currency": "str",
+        "people": "dict",
+    },
     "employee": {"name": "str", "id": "str"},
 }
 ID_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -29,9 +56,7 @@ def _compatible(have: str, want: str) -> bool:
         return True
     if want == "str" and have in ("date", "number"):
         return True
-    if want == "date" and have == "str":
-        return True
-    return False
+    return bool(want == "date" and have == "str")
 
 
 def _literal_type_ok(value, want: str) -> bool:
@@ -65,9 +90,15 @@ def check(plan_raw, role: str, tools: list[str] | None = None) -> tuple[dict, di
     except ValidationError as e:
         msgs = [f"plan format: {'.'.join(str(p) for p in err['loc'])}: {err['msg']}" for err in e.errors()[:8]]
         add("structure", "Plan structure", msgs)
-        for cid, name in [("ids", "Unique step IDs"), ("actions", "Known actions"), ("privilege", "Least privilege"),
-                          ("params", "Parameters"), ("refs", "References & types"), ("conditions", "Conditions"),
-                          ("policy", "Company policy")]:
+        for cid, name in [
+            ("ids", "Unique step IDs"),
+            ("actions", "Known actions"),
+            ("privilege", "Least privilege"),
+            ("params", "Parameters"),
+            ("refs", "References & types"),
+            ("conditions", "Conditions"),
+            ("policy", "Company policy"),
+        ]:
             checks.append({"id": cid, "name": name, "passed": False, "details": ["not run (plan structure invalid)"]})
         return {"ok": False, "checks": checks, "errors": errors, "warnings": warnings}, None
     det = []
@@ -94,8 +125,10 @@ def check(plan_raw, role: str, tools: list[str] | None = None) -> tuple[dict, di
     for s in plan.steps:
         if s.action not in REGISTRY:
             near = difflib.get_close_matches(s.action, REGISTRY.keys(), n=1)
-            det.append(f"[{s.id}] unknown action '{s.action}'" + (f" — did you mean '{near[0]}'?" if near else
-                                                                    f" — allowed: {', '.join(sorted(REGISTRY))}"))
+            det.append(
+                f"[{s.id}] unknown action '{s.action}'"
+                + (f" — did you mean '{near[0]}'?" if near else f" — allowed: {', '.join(sorted(REGISTRY))}")
+            )
         else:
             s.side_effect = REGISTRY[s.action].side_effect
     add("actions", "Known actions", det)
@@ -121,8 +154,10 @@ def check(plan_raw, role: str, tools: list[str] | None = None) -> tuple[dict, di
             det.append(f"[{s.id}] {s.action} is missing required parameter(s): {', '.join(sorted(missing))}")
         unknown = set(s.params) - set(spec.inputs)
         if unknown:
-            det.append(f"[{s.id}] {s.action} has no parameter(s) {', '.join(sorted(unknown))}; "
-                       f"it accepts: {', '.join(spec.inputs)}")
+            det.append(
+                f"[{s.id}] {s.action} has no parameter(s) {', '.join(sorted(unknown))}; "
+                f"it accepts: {', '.join(spec.inputs)}"
+            )
         for k, v in s.params.items():
             if k in spec.inputs and not expr.value_refs(v) and not _literal_type_ok(v, spec.inputs[k]):
                 det.append(f"[{s.id}] parameter '{k}' must be {spec.inputs[k].rstrip('?')}, got {type(v).__name__}")
@@ -152,8 +187,10 @@ def check(plan_raw, role: str, tools: list[str] | None = None) -> tuple[dict, di
         else:
             if path[1] not in src.outputs:
                 near = difflib.get_close_matches(path[1], src.outputs.keys(), n=1)
-                det.append(f"[{sid}] {where}: {root} ({src.name}) has no output '{path[1]}'"
-                           + (f" — did you mean '{near[0]}'?" if near else f" — outputs: {', '.join(src.outputs)}"))
+                det.append(
+                    f"[{sid}] {where}: {root} ({src.name}) has no output '{path[1]}'"
+                    + (f" — did you mean '{near[0]}'?" if near else f" — outputs: {', '.join(src.outputs)}")
+                )
                 return
             have = src.outputs[path[1]] if len(path) == 2 else "any"
         if want and not _compatible(have, want):
@@ -193,7 +230,9 @@ def check(plan_raw, role: str, tools: list[str] | None = None) -> tuple[dict, di
             det.append(f"[{s.id}] request_approval must have requires_approval: true")
         if spec and spec.money:
             if not s.when:
-                det.append(f"[{s.id}] '{s.action}' moves money and must be guarded by a condition (no unconditional posting)")
+                det.append(
+                    f"[{s.id}] '{s.action}' moves money and must be guarded by a condition (no unconditional posting)"
+                )
             if not any(j < i for j in has_approval):
                 det.append(f"[{s.id}] '{s.action}' needs a request_approval step before it (SOP approval limits)")
         if spec and spec.side_effect and not spec.money and not s.when and not s.requires_approval:

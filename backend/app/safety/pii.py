@@ -3,6 +3,7 @@
 The model sees tokens like [PHONE_1]; we map them back afterwards, so the answer is still useful
 but the raw identifiers never leave the machine.
 """
+
 import re
 
 PATTERNS: list[tuple[str, re.Pattern]] = [

@@ -4,6 +4,7 @@ Allowed:  s10.route == 'approval' and s2.total >= 10000 ;  not s6.is_duplicate ;
 Formulas may call a small whitelist: len, min, max, round, abs, emi(principal, rate, months), days_between(a, b), today().
 Nothing else (no imports, no attribute magic, no arbitrary calls).
 """
+
 import ast
 import re
 from datetime import date
@@ -38,13 +39,21 @@ def _safe(fn):
             return fn(*args)
         except (TypeError, ValueError):
             return None
+
     return wrapped
 
 
 # the only functions a condition / formula may call
-FUNCS = {"len": _safe(lambda v: len(v) if v is not None else 0), "min": _safe(min), "max": _safe(max),
-         "round": _safe(round), "abs": _safe(abs), "emi": _emi, "days_between": _days_between,
-         "today": lambda: date.today().isoformat()}
+FUNCS = {
+    "len": _safe(lambda v: len(v) if v is not None else 0),
+    "min": _safe(min),
+    "max": _safe(max),
+    "round": _safe(round),
+    "abs": _safe(abs),
+    "emi": _emi,
+    "days_between": _days_between,
+    "today": lambda: date.today().isoformat(),
+}
 
 _NAMES_OK = {"true": True, "false": False, "null": None, "none": None, "True": True, "False": False, "None": None}
 REF_RE = re.compile(r"^\$([A-Za-z_][\w]*)((?:\.[A-Za-z_][\w]*)*)$")
@@ -72,9 +81,37 @@ def parse(expr: str) -> ast.Expression:
 
 
 def _validate(node: ast.AST) -> None:
-    allowed = (ast.BoolOp, ast.And, ast.Or, ast.UnaryOp, ast.Not, ast.USub, ast.Compare, ast.Eq, ast.NotEq, ast.Lt,
-               ast.LtE, ast.Gt, ast.GtE, ast.In, ast.NotIn, ast.Is, ast.IsNot, ast.Name, ast.Load, ast.Attribute,
-               ast.Constant, ast.List, ast.Tuple, ast.Subscript, ast.BinOp, ast.Add, ast.Sub, ast.Mult, ast.Div)
+    allowed = (
+        ast.BoolOp,
+        ast.And,
+        ast.Or,
+        ast.UnaryOp,
+        ast.Not,
+        ast.USub,
+        ast.Compare,
+        ast.Eq,
+        ast.NotEq,
+        ast.Lt,
+        ast.LtE,
+        ast.Gt,
+        ast.GtE,
+        ast.In,
+        ast.NotIn,
+        ast.Is,
+        ast.IsNot,
+        ast.Name,
+        ast.Load,
+        ast.Attribute,
+        ast.Constant,
+        ast.List,
+        ast.Tuple,
+        ast.Subscript,
+        ast.BinOp,
+        ast.Add,
+        ast.Sub,
+        ast.Mult,
+        ast.Div,
+    )
     for n in ast.walk(node):
         if isinstance(n, ast.Call):
             if not (isinstance(n.func, ast.Name) and n.func.id in FUNCS) or n.keywords:
@@ -101,7 +138,7 @@ def references(expr: str) -> list[list[str]]:
         elif isinstance(n, ast.Name) and n.id not in _NAMES_OK and n.id not in FUNCS:
             out.append([n.id])
     # keep only the longest paths (drop prefixes of attribute chains)
-    longest = [p for p in out if not any(q != p and q[:len(p)] == p for q in out)]
+    longest = [p for p in out if not any(q != p and q[: len(p)] == p for q in out)]
     return longest
 
 
@@ -177,6 +214,7 @@ def resolve_value(value, scope: dict):
                 cur = _get(cur, part)
             return cur
         if "${" in value:
+
             def sub(mm):
                 cur = scope
                 for part in mm.group(1).split("."):
@@ -186,6 +224,7 @@ def resolve_value(value, scope: dict):
                 if isinstance(cur, list):
                     return "; ".join(str(x) for x in cur)
                 return f"{cur:,.2f}" if isinstance(cur, float) else str(cur)
+
             return INTERP_RE.sub(sub, value)
         return value
     if isinstance(value, dict):
@@ -236,5 +275,5 @@ def _compare(op: ast.cmpop, left, right) -> bool:
         if isinstance(op, ast.IsNot):
             return left is not right
     except TypeError:
-        return False                   # e.g. None < 5 -> the condition is simply false
+        return False  # e.g. None < 5 -> the condition is simply false
     raise ExprError(f"unsupported comparison {type(op).__name__}")
