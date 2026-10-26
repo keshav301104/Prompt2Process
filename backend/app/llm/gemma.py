@@ -35,6 +35,7 @@ class Gemma:
         self.mode = "offline"
         self.error = ""
         self.total_calls = 0
+        self._thinking_ok = True
         self.trace: deque = deque(maxlen=200)
         self._lock = threading.Lock()
         self._init()
@@ -103,7 +104,7 @@ class Gemma:
             contents.append(types.Part.from_bytes(data=img, mime_type="image/png"))
         contents.append(prompt)
         model = self.vision_model if images else self.model
-        cfg = types.GenerateContentConfig(temperature=temperature, max_output_tokens=max_tokens)
+        cfg = self._config(purpose, temperature, max_tokens)
 
         last_err = None
         for _attempt, backoff in enumerate((3, 8, 20, 0)):
@@ -116,6 +117,10 @@ class Gemma:
             except Exception as e:
                 last_err = e
                 msg = str(e)
+                if self._thinking_ok and "thinking" in msg.lower() and ("400" in msg or "INVALID_ARGUMENT" in msg):
+                    self._thinking_ok = False  # this model/API version rejects the thinking setting: stop sending it
+                    cfg = self._config(purpose, temperature, max_tokens)
+                    continue
                 transient = (
                     any(s in msg for s in ("429", "RESOURCE_EXHAUSTED", "503", "500", "UNAVAILABLE"))
                     or "timeout" in msg.lower()
@@ -126,6 +131,17 @@ class Gemma:
                     continue
                 break
         raise LLMUnavailable(f"Gemma call failed: {last_err}")
+
+    def thinking_level(self, purpose: str) -> str:
+        """How hard Gemma should think for this call ('' = the model's default)."""
+        level = config.GEMMA_THINKING_DEEP if purpose.startswith("hire:") else config.GEMMA_THINKING
+        return level if self._thinking_ok else ""
+
+    def _config(self, purpose: str, temperature: float, max_tokens: int) -> Any:
+        types = self._types
+        level = self.thinking_level(purpose)
+        extra = {"thinking_config": types.ThinkingConfig(thinking_level=level.upper())} if level else {}
+        return types.GenerateContentConfig(temperature=temperature, max_output_tokens=max_tokens, **extra)
 
     def generate_json(self, prompt: str, images: list[bytes] | None = None, purpose: str = "", **kw):
         text = self.generate(

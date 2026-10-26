@@ -21,10 +21,16 @@ def main() -> None:
         return
     print("gemma models visible:", ", ".join(llm.list_models()) or "none")
     print("selected text model:", llm.model, "| vision model:", llm.vision_model)
+    print(
+        "thinking: routine steps =",
+        llm.thinking_level("check") or "model default",
+        "| SOP compiler =",
+        llm.thinking_level("hire:compile") or "model default",
+    )
 
     t0 = time.time()
     try:
-        ans = llm.generate_json('Return {"ok": true, "model": "<your model family>"} as JSON.', purpose="check:json")
+        ans = llm.generate_json('Return {"ok": true, "sum": <2 + 3>} as JSON.', purpose="check:json")
         print(f"JSON test: OK in {time.time() - t0:.1f}s ->", ans)
     except Exception as e:
         print("JSON test: FAILED ->", e)
@@ -41,6 +47,8 @@ def main() -> None:
             'Read the image. Return {"invoice_no": "...", "total": <number>}.', images=[png], purpose="check:vision"
         )
         print(f"Vision test: OK in {time.time() - t0:.1f}s ->", ans)
+        if not llm.thinking_level("check"):
+            print("   (thinking setting was rejected by the API, so the model default is used)")
     except Exception as e:
         print("Vision test: FAILED ->", e)
 

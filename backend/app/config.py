@@ -17,7 +17,11 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "
 GEMMA_MODEL = os.getenv("GEMMA_MODEL", "")  # e.g. gemma-4-...  (auto-detected from the API when empty)
 GEMMA_VISION_MODEL = os.getenv("GEMMA_VISION_MODEL", "")
 LLM_MODE = os.getenv("LLM_MODE", "auto")  # auto | live | offline
-LLM_TIMEOUT_S = float(os.getenv("LLM_TIMEOUT_S", "90"))
+LLM_TIMEOUT_S = float(os.getenv("LLM_TIMEOUT_S", "180"))
+# Gemma 4 can "think" before answering. Routine steps (read, classify, draft) don't need it and get much faster
+# without it; the SOP compiler (hire:*) keeps the model's default reasoning. Values: minimal | low | medium | high | ""
+GEMMA_THINKING = os.getenv("GEMMA_THINKING", "minimal").strip().lower()
+GEMMA_THINKING_DEEP = os.getenv("GEMMA_THINKING_DEEP", "").strip().lower()
 
 DEFAULT_SETTINGS = {
     "chaos_mode": False,
