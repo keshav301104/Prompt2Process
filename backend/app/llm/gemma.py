@@ -37,6 +37,7 @@ class Gemma:
         self.error = ""
         self.total_calls = 0
         self._bad_levels: set[str] = set()
+        self._limits: dict[str, tuple[int | None, int | None]] | None = None  # model -> (input, output) tokens
         self.last_error = ""
         self.trace: deque = deque(maxlen=200)
         self._lock = threading.Lock()
@@ -82,6 +83,19 @@ class Gemma:
         instruct = [n for n in candidates if "it" in n.split("-")] or candidates
         return max(instruct, key=size)
 
+    def limits(self, model: str) -> tuple[int | None, int | None]:
+        """(input, output) token limits Google publishes for a model — read once from the API."""
+        if self._limits is None:
+            self._limits = {}
+            try:
+                for m in self.client.models.list():
+                    if "gemma" in m.name:
+                        name = m.name.split("/")[-1]
+                        self._limits[name] = (m.input_token_limit, m.output_token_limit)
+            except Exception:
+                pass  # limits are an optimisation; calls still work without them
+        return self._limits.get(model, (None, None))
+
     def list_models(self) -> list[str]:
         if not self.client:
             return []
@@ -111,6 +125,8 @@ class Gemma:
         model = self.vision_model if images else (self.deep_model if deep else self.model)
         if deep:  # room to reason AND to write a whole plan
             max_tokens = max(max_tokens, config.GEMMA_DEEP_MAX_TOKENS)
+        out_limit = self.limits(model)[1]
+        max_tokens = min(max_tokens, out_limit or SAFE_MAX_TOKENS)  # never ask for more than the model can give
 
         last_err: Exception | None = None
         for _attempt, backoff in enumerate((3, 8, 20, 0)):
@@ -129,6 +145,16 @@ class Gemma:
                 if bad_request and "token" in msg.lower() and max_tokens > 8192:
                     max_tokens = 8192  # model has a smaller output limit
                     continue
+                if ("500" in msg or "INTERNAL" in msg) and max_tokens > 8192:
+                    max_tokens = 8192  # big answer budgets can make the hosted model fail with a bare 500
+                    continue
+                if "429" in msg or "RESOURCE_EXHAUSTED" in msg:  # per-minute quota: wait as long as Google asks
+                    m = re.search(r"retry(?:_?delay)?\W+(\d+)", msg, re.IGNORECASE)
+                    wait = min(int(m.group(1)) + 1, 60) if m else max(backoff, 15)
+                    if backoff:
+                        self.last_error = f"{purpose}: per-minute quota reached, waiting {wait}s"
+                        time.sleep(wait)
+                        continue
                 transient = (
                     any(s in msg for s in ("429", "RESOURCE_EXHAUSTED", "503", "500", "UNAVAILABLE"))
                     or "timeout" in msg.lower()
@@ -211,6 +237,8 @@ def _usage(resp: Any) -> dict:
         "finish": str(getattr(finish, "name", finish) or ""),
     }
 
+
+SAFE_MAX_TOKENS = 8192  # used when Google does not publish a model's output limit
 
 _THOUGHTS = re.compile(r"<(think|thought|thinking)>.*?</\1>", re.DOTALL | re.IGNORECASE)
 

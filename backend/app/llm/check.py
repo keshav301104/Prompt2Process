@@ -21,6 +21,9 @@ def main() -> None:
         return
     print("gemma models visible:", ", ".join(llm.list_models()) or "none")
     print("routine model:", llm.model, "| vision model:", llm.vision_model, "| SOP compiler model:", llm.deep_model)
+    for name in dict.fromkeys([llm.model, llm.vision_model, llm.deep_model]):
+        lim_in, lim_out = llm.limits(name)
+        print(f"limits for {name}: input {lim_in or '?'} tokens, answer {lim_out or '?'} tokens")
     print(
         "thinking: routine steps =",
         llm.thinking_level("check") or "model default",
