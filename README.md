@@ -9,7 +9,7 @@
 [![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**Live demo:** [PASTE-YOUR-RENDER-LINK-HERE](PASTE-YOUR-RENDER-LINK-HERE) · open it, click **Load demo workspace**, and explore. *(Free hosting sleeps when idle, so the first load can take about a minute.)*
+**Live demo:** [https://prompt2process.onrender.com](PASTE-YOUR-RENDER-LINK-HERE) · open it, click **Load demo workspace**, and explore. *(Free hosting sleeps when idle, so the first load can take about a minute.)*
 
 ![Owner cockpit: digital employees across sectors](docs/screenshots/09-cockpit.png)
 
