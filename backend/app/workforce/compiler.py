@@ -55,7 +55,7 @@ def _directory_questions(pack: dict | None) -> list[dict]:
     return out
 
 
-def draft(name: str, template_id: str | None, sop_text: str | None) -> dict:
+def draft(name: str, template_id: str | None, sop_text: str | None, use_ai: bool = True) -> dict:
     pack = packs.get(template_id) or (packs.get(packs.detect(sop_text)) if sop_text else None)
     sop = sop_text or (pack or {}).get("sop", "")
     if not sop.strip():
@@ -64,6 +64,8 @@ def draft(name: str, template_id: str | None, sop_text: str | None) -> dict:
     questions = _directory_questions(pack)
     summary, method = "", "template"
     try:
+        if not use_ai:
+            raise LLMUnavailable("template questions requested")
         o = org.get()
         ans = llm.generate_json(
             "You are onboarding a new digital employee from a company SOP. List the 1-3 most important AMBIGUITIES "
@@ -207,6 +209,6 @@ def confirm(draft_id: str, name: str | None = None) -> dict:
 
 def hire_from_template(template_id: str, name: str, answers: dict | None = None, reference_only: bool = False) -> dict:
     """The whole pipeline in one call (used by 'Load demo workspace' and the API)."""
-    d = draft(name, template_id, None)
+    d = draft(name, template_id, None, use_ai=not reference_only)  # the demo uses the templates' own questions
     compile_plan(d["draft_id"], answers or {}, reference_only=reference_only)
     return confirm(d["draft_id"])
