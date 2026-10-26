@@ -36,7 +36,8 @@ class Gemma:
         self.mode = "offline"
         self.error = ""
         self.total_calls = 0
-        self._thinking_ok = True
+        self._bad_levels: set[str] = set()
+        self.last_error = ""
         self.trace: deque = deque(maxlen=200)
         self._lock = threading.Lock()
         self._init()
@@ -106,23 +107,27 @@ class Gemma:
         for img in images or []:
             contents.append(types.Part.from_bytes(data=img, mime_type="image/png"))
         contents.append(prompt)
-        model = self.vision_model if images else (self.deep_model if purpose.startswith("hire:") else self.model)
-        cfg = self._config(purpose, temperature, max_tokens)
+        deep = purpose.startswith("hire:")
+        model = self.vision_model if images else (self.deep_model if deep else self.model)
+        if deep:  # room to reason AND to write a whole plan
+            max_tokens = max(max_tokens, config.GEMMA_DEEP_MAX_TOKENS)
 
-        last_err = None
+        last_err: Exception | None = None
         for _attempt, backoff in enumerate((3, 8, 20, 0)):
+            cfg = self._config(purpose, temperature, max_tokens)
             t0 = time.time()
             try:
                 resp = self.client.models.generate_content(model=model, contents=contents, config=cfg)
-                text = resp.text or ""
-                self._count(purpose, model, prompt, text, time.time() - t0, bool(images))
-                return text
             except Exception as e:
                 last_err = e
                 msg = str(e)
-                if self._thinking_ok and "thinking" in msg.lower() and ("400" in msg or "INVALID_ARGUMENT" in msg):
-                    self._thinking_ok = False  # this model/API version rejects the thinking setting: stop sending it
-                    cfg = self._config(purpose, temperature, max_tokens)
+                bad_request = "400" in msg or "INVALID_ARGUMENT" in msg
+                level = self.thinking_level(purpose)
+                if bad_request and level and "think" in msg.lower():
+                    self._bad_levels.add(level)  # this model rejects that thinking level: stop sending it
+                    continue
+                if bad_request and "token" in msg.lower() and max_tokens > 8192:
+                    max_tokens = 8192  # model has a smaller output limit
                     continue
                 transient = (
                     any(s in msg for s in ("429", "RESOURCE_EXHAUSTED", "503", "500", "UNAVAILABLE"))
@@ -133,12 +138,22 @@ class Gemma:
                     time.sleep(backoff)
                     continue
                 break
-        raise LLMUnavailable(f"Gemma call failed: {last_err}")
+            text = resp.text or ""
+            info = _usage(resp)
+            self._count(purpose, model, prompt, text, time.time() - t0, bool(images), info)
+            if not text.strip():
+                self.last_error = (
+                    f"{purpose}: empty answer (finish={info['finish'] or '?'}, thinking tokens={info['thoughts']})"
+                )
+                raise LLMUnavailable(self.last_error)
+            return text
+        self.last_error = f"{purpose}: Gemma call failed: {last_err}"
+        raise LLMUnavailable(self.last_error)
 
     def thinking_level(self, purpose: str) -> str:
         """How hard Gemma should think for this call ('' = the model's default)."""
         level = config.GEMMA_THINKING_DEEP if purpose.startswith("hire:") else config.GEMMA_THINKING
-        return level if self._thinking_ok else ""
+        return "" if level in self._bad_levels else level
 
     def _config(self, purpose: str, temperature: float, max_tokens: int) -> Any:
         types = self._types
@@ -152,14 +167,20 @@ class Gemma:
         )
         try:
             return parse_json(text)
-        except ValueError:
+        except ValueError as first:
+            self.last_error = f"{purpose}: {first} — asking Gemma to repair it"
             fix = self.generate(
                 "The following was supposed to be valid JSON but is not. Return the corrected JSON only.\n\n" + text,
                 purpose=purpose + ":json-repair",
+                **kw,
             )
-            return parse_json(fix)
+            try:
+                return parse_json(fix)
+            except ValueError as e:
+                self.last_error = f"{purpose}: {e} (also after repair)"
+                raise
 
-    def _count(self, purpose, model, prompt, text, seconds, vision) -> None:
+    def _count(self, purpose, model, prompt, text, seconds, vision, info: dict | None = None) -> None:
         with self._lock:
             self.total_calls += 1
             self.trace.appendleft(
@@ -171,6 +192,7 @@ class Gemma:
                     "prompt_chars": len(prompt),
                     "output_chars": len(text),
                     "seconds": round(seconds, 2),
+                    **(info or {}),
                 }
             )
         counter = CALL_COUNTER.get()
@@ -178,22 +200,49 @@ class Gemma:
             counter["n"] = counter.get("n", 0) + 1
 
 
+def _usage(resp: Any) -> dict:
+    """Thinking tokens, answer tokens and why the model stopped — shown in the Gemma trace."""
+    u = getattr(resp, "usage_metadata", None)
+    cands = getattr(resp, "candidates", None) or []
+    finish = getattr(cands[0], "finish_reason", None) if cands else None
+    return {
+        "thoughts": getattr(u, "thoughts_token_count", None) if u else None,
+        "out_tokens": getattr(u, "candidates_token_count", None) if u else None,
+        "finish": str(getattr(finish, "name", finish) or ""),
+    }
+
+
+_THOUGHTS = re.compile(r"<(think|thought|thinking)>.*?</\1>", re.DOTALL | re.IGNORECASE)
+
+
 def parse_json(text: str):
-    t = text.strip()
-    t = re.sub(r"^```(?:json)?", "", t).strip()
-    t = re.sub(r"```$", "", t).strip()
-    starts = [i for i in (t.find("{"), t.find("[")) if i != -1]
+    """The largest valid JSON value in the answer (ignores reasoning text, fences and small inline examples)."""
+    t = _THOUGHTS.sub("", text or "").replace("```json", "```")
+    dec = json.JSONDecoder()
+    best: tuple[int, Any] | None = None
+    i, n = 0, len(t)
+    while i < n:
+        if t[i] in "{[":
+            try:
+                obj, end = dec.raw_decode(t, i)
+            except json.JSONDecodeError:
+                i += 1
+                continue
+            if best is None or end - i > best[0]:
+                best = (end - i, obj)
+            i = end  # skip what's inside this value
+            continue
+        i += 1
+    if best is not None:
+        return best[1]
+    starts = [k for k in (t.find("{"), t.find("[")) if k != -1]
     if not starts:
         raise ValueError("no JSON found")
-    start = min(starts)
-    end = max(t.rfind("}"), t.rfind("]"))
-    candidate = t[start : end + 1]
-    for attempt in (candidate, re.sub(r",\s*([}\]])", r"\1", candidate)):
-        try:
-            return json.loads(attempt)
-        except json.JSONDecodeError:
-            continue
-    raise ValueError("invalid JSON")
+    candidate = t[min(starts) : max(t.rfind("}"), t.rfind("]")) + 1]
+    try:
+        return json.loads(re.sub(r",\s*([}\]])", r"\1", candidate))  # tolerate trailing commas
+    except json.JSONDecodeError as e:
+        raise ValueError(f"invalid JSON ({e.msg})") from e
 
 
 llm = Gemma()

@@ -59,6 +59,8 @@ def main() -> None:
         t0 = time.time()
         d = compiler.draft("Test", "ap", sop.read_text(encoding="utf-8"))
         print(f"Clarify ({d['method']}): {len(d['questions'])} questions in {time.time() - t0:.1f}s")
+        if d["method"] != "gemma":
+            print("   Gemma fell back to the template because:", llm.last_error or "?")
         for q in d["questions"]:
             print("   -", q["question"])
         t0 = time.time()
@@ -72,6 +74,14 @@ def main() -> None:
                 print("      ·", msg)
         report, _ = checker.check(res["plan"], "ap") if res["plan"] else ({"ok": False}, None)
         print("final plan passes checker:", report["ok"])
+        if any(a["by"] != "gemma" for a in res["attempts"][-1:]):
+            print("   last Gemma problem:", llm.last_error or "-")
+    print("\nGemma calls (newest first):")
+    for t in llm.trace:
+        print(
+            f"   {t['purpose']:<28} {t['model']:<20} {t['seconds']:>6.1f}s  thinking={t.get('thoughts')} "
+            f"answer={t.get('out_tokens')} finish={t.get('finish') or '-'}"
+        )
     print("total Gemma calls:", llm.total_calls)
 
 

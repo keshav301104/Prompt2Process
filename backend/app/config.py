@@ -23,6 +23,7 @@ LLM_TIMEOUT_S = float(os.getenv("LLM_TIMEOUT_S", "180"))
 # without it; the SOP compiler (hire:*) keeps the model's default reasoning. Values: minimal | low | medium | high | ""
 GEMMA_THINKING = os.getenv("GEMMA_THINKING", "minimal").strip().lower()
 GEMMA_THINKING_DEEP = os.getenv("GEMMA_THINKING_DEEP", "").strip().lower()
+GEMMA_DEEP_MAX_TOKENS = int(os.getenv("GEMMA_DEEP_MAX_TOKENS", "16384"))  # compiler answers: reasoning + full plan
 
 DEFAULT_SETTINGS = {
     "chaos_mode": False,
