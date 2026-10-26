@@ -184,7 +184,11 @@ class Gemma:
     def _config(self, purpose: str, temperature: float, max_tokens: int) -> Any:
         types = self._types
         level = self.thinking_level(purpose)
-        extra = {"thinking_config": types.ThinkingConfig(thinking_level=level.upper())} if level else {}
+        extra: dict[str, Any] = {"thinking_config": types.ThinkingConfig(thinking_level=level.upper())} if level else {}
+        if purpose.startswith("hire:"):  # Google stops a call at the deadline we send — give the compiler longer
+            secs = int(config.GEMMA_DEEP_TIMEOUT_S)
+            # the SDK caches the client's deadline header after the first call, so set it explicitly as well
+            extra["http_options"] = types.HttpOptions(timeout=secs * 1000, headers={"X-Server-Timeout": str(secs)})
         return types.GenerateContentConfig(temperature=temperature, max_output_tokens=max_tokens, **extra)
 
     def generate_json(self, prompt: str, images: list[bytes] | None = None, purpose: str = "", **kw):
