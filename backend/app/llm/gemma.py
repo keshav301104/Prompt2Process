@@ -32,6 +32,7 @@ class Gemma:
         self._types: Any = None
         self.model = config.GEMMA_MODEL
         self.vision_model = config.GEMMA_VISION_MODEL
+        self.deep_model = config.GEMMA_DEEP_MODEL
         self.mode = "offline"
         self.error = ""
         self.total_calls = 0
@@ -59,6 +60,8 @@ class Gemma:
                 self.model = self._detect_model()
             if not self.vision_model:
                 self.vision_model = self.model
+            if not self.deep_model:
+                self.deep_model = self.model
             self.mode = "live"
         except Exception as e:
             self.mode = "offline"
@@ -103,7 +106,7 @@ class Gemma:
         for img in images or []:
             contents.append(types.Part.from_bytes(data=img, mime_type="image/png"))
         contents.append(prompt)
-        model = self.vision_model if images else self.model
+        model = self.vision_model if images else (self.deep_model if purpose.startswith("hire:") else self.model)
         cfg = self._config(purpose, temperature, max_tokens)
 
         last_err = None

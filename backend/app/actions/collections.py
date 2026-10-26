@@ -167,6 +167,8 @@ def draft_reminder(ctx: ExecContext, customer: dict, level: float, language: str
     amt = f"₹{float(c.get('amount') or 0):,.2f}"
     company_name = co.company().get("name")
     try:
+        if ctx.settings.get("replay"):
+            raise LLMUnavailable("backtest replay: decisions are scored, letters are not written")
         facts = (
             f"Customer: {c.get('name')} (contact: {c.get('contact_person')}, phone {c.get('phone')}, "
             f"email {c.get('email')}). Invoice {c.get('invoice_no')} for {amt}, due {c.get('due_date')}, "

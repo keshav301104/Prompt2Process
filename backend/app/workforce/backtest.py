@@ -63,7 +63,8 @@ def _items(emp: dict) -> tuple[str, list[dict]]:
 
 def _run(bt_id: str, emp_id: str) -> None:
     emp = db.must("employees", emp_id)
-    settings = work.settings() | {"chaos_mode": False}
+    # replay: score the decisions only — drafting letters nobody will send would just spend Gemma calls
+    settings = work.settings() | {"chaos_mode": False, "replay": True}
     minutes = settings.get("minutes_per_case_manual", 20)
     t0 = time.time()
     try:

@@ -551,6 +551,8 @@ def draft_message(ctx: ExecContext, to_name: str, purpose: str, facts: str, lang
     lang = (language or "en").lower()[:2]
     org = ctx.employee.get("org") or co.company().get("name")
     try:
+        if ctx.settings.get("replay"):
+            raise LLMUnavailable("backtest replay: decisions are scored, letters are not written")
         masked, mapping = pii.mask(facts or "")
         ans = llm.generate_json(
             f"Write a {purpose} to {to_name} in {LANG.get(lang, 'English')} (native script). Respectful, clear, "

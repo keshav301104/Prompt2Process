@@ -16,6 +16,7 @@ FRONTEND_DIST = ROOT / "frontend" / "dist"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
 GEMMA_MODEL = os.getenv("GEMMA_MODEL", "")  # e.g. gemma-4-...  (auto-detected from the API when empty)
 GEMMA_VISION_MODEL = os.getenv("GEMMA_VISION_MODEL", "")
+GEMMA_DEEP_MODEL = os.getenv("GEMMA_DEEP_MODEL", "")  # model for the SOP compiler (hire:*); empty = GEMMA_MODEL
 LLM_MODE = os.getenv("LLM_MODE", "auto")  # auto | live | offline
 LLM_TIMEOUT_S = float(os.getenv("LLM_TIMEOUT_S", "180"))
 # Gemma 4 can "think" before answering. Routine steps (read, classify, draft) don't need it and get much faster

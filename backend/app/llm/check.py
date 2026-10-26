@@ -20,7 +20,7 @@ def main() -> None:
         print("Offline: add GEMINI_API_KEY to the .env file in the repo root and run again.")
         return
     print("gemma models visible:", ", ".join(llm.list_models()) or "none")
-    print("selected text model:", llm.model, "| vision model:", llm.vision_model)
+    print("routine model:", llm.model, "| vision model:", llm.vision_model, "| SOP compiler model:", llm.deep_model)
     print(
         "thinking: routine steps =",
         llm.thinking_level("check") or "model default",
