@@ -1,0 +1,19 @@
+# The optional demo workspace. Loading it goes through the same APIs a real customer uses:
+# organisation profile -> people directory -> hire employees from templates.
+org:
+  name: Amaravati Group (demo)
+  industry: Multi-sector demo — food processing, lending, education, retail, health insurance
+  city: Vijayawada
+  state_code: "37"
+people:
+  - {key: sales_manager, role: Sales Manager, name: Srinivas Rao, email: sales.manager@example.in}
+  - {key: branch_manager, role: Branch Manager, name: Srinivas Reddy, email: branch.manager@example.in}
+  - {key: scholarship_committee, role: Scholarship Committee chair, name: Dr. Anitha Rao, email: scholarships@example.in}
+  - {key: returns_supervisor, role: Returns Supervisor, name: Meghana K, email: returns.lead@example.in}
+  - {key: medical_officer, role: Medical Officer, name: Dr. Prakash Varma, email: medical.officer@example.in}
+team:
+  - {template: ap, name: Meera}
+  - {template: banking, name: Kavya}
+  - {template: education, name: Vidya}
+  - {template: retail, name: Ravi}
+  - {template: healthcare, name: Asha}
