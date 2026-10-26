@@ -4,7 +4,7 @@ Each action declares typed inputs/outputs, whether it changes the outside world 
 whether it moves money, and which roles may use it (least privilege).
 """
 from dataclasses import dataclass, field
-from typing import Callable
+from collections.abc import Callable
 
 
 class PolicyError(Exception):

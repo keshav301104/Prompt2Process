@@ -1,10 +1,50 @@
 """A tiny, safe expression language for `when` conditions and `$references`.
 
 Allowed:  s10.route == 'approval' and s2.total >= 10000 ;  not s6.is_duplicate ;  s3.level in [2, 3] ;  len(s7.issues) > 0
-Nothing else (no function calls except len, no imports, no attribute magic).
+Formulas may call a small whitelist: len, min, max, round, abs, emi(principal, rate, months), days_between(a, b), today().
+Nothing else (no imports, no attribute magic, no arbitrary calls).
 """
 import ast
 import re
+from datetime import date
+
+
+def _d(v):
+    try:
+        return date.fromisoformat(str(v)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def _days_between(a, b):
+    da, db = _d(a), _d(b)
+    return (db - da).days if da and db else None
+
+
+def _emi(principal, annual_rate_pct, months):
+    """Monthly instalment of a loan (reducing balance)."""
+    try:
+        p, r, n = float(principal), float(annual_rate_pct) / 1200, int(months)
+    except (TypeError, ValueError):
+        return None
+    if n <= 0:
+        return None
+    return round(p / n, 2) if r == 0 else round(p * r * (1 + r) ** n / ((1 + r) ** n - 1), 2)
+
+
+def _safe(fn):
+    def wrapped(*args):
+        try:
+            return fn(*args)
+        except (TypeError, ValueError):
+            return None
+    return wrapped
+
+
+# the only functions a condition / formula may call
+FUNCS = {"len": _safe(lambda v: len(v) if v is not None else 0), "min": _safe(min), "max": _safe(max),
+         "round": _safe(round), "abs": _safe(abs), "emi": _emi, "days_between": _days_between,
+         "today": lambda: date.today().isoformat()}
 
 _NAMES_OK = {"true": True, "false": False, "null": None, "none": None, "True": True, "False": False, "None": None}
 REF_RE = re.compile(r"^\$([A-Za-z_][\w]*)((?:\.[A-Za-z_][\w]*)*)$")
@@ -37,8 +77,8 @@ def _validate(node: ast.AST) -> None:
                ast.Constant, ast.List, ast.Tuple, ast.Subscript, ast.BinOp, ast.Add, ast.Sub, ast.Mult, ast.Div)
     for n in ast.walk(node):
         if isinstance(n, ast.Call):
-            if not (isinstance(n.func, ast.Name) and n.func.id == "len" and len(n.args) == 1):
-                raise ExprError("only len(...) may be called in a condition")
+            if not (isinstance(n.func, ast.Name) and n.func.id in FUNCS) or n.keywords:
+                raise ExprError(f"only these functions may be called: {', '.join(FUNCS)}")
             continue
         if not isinstance(n, allowed):
             raise ExprError(f"'{type(n).__name__}' is not allowed in a condition")
@@ -50,14 +90,15 @@ def references(expr: str) -> list[list[str]]:
     out = []
     for n in ast.walk(tree):
         if isinstance(n, ast.Attribute):
-            path, cur = [], n
+            path: list[str] = []
+            cur: ast.expr = n
             while isinstance(cur, ast.Attribute):
                 path.append(cur.attr)
                 cur = cur.value
             if isinstance(cur, ast.Name):
                 path.append(cur.id)
                 out.append(list(reversed(path)))
-        elif isinstance(n, ast.Name) and n.id not in _NAMES_OK and n.id != "len":
+        elif isinstance(n, ast.Name) and n.id not in _NAMES_OK and n.id not in FUNCS:
             out.append([n.id])
     # keep only the longest paths (drop prefixes of attribute chains)
     longest = [p for p in out if not any(q != p and q[:len(p)] == p for q in out)]
@@ -66,6 +107,11 @@ def references(expr: str) -> list[list[str]]:
 
 def evaluate(expr: str, scope: dict) -> bool:
     return bool(_eval(parse(expr).body, scope))
+
+
+def compute(expr: str, scope: dict):
+    """Evaluate a formula and return its value (not just true/false)."""
+    return _eval(parse(expr).body, scope)
 
 
 def _get(obj, key):
@@ -98,24 +144,22 @@ def _eval(n, scope):
         vals = (_eval(v, scope) for v in n.values)
         return all(vals) if isinstance(n.op, ast.And) else any(vals)
     if isinstance(n, ast.BinOp):
-        a, b = _eval(n.left, scope) or 0, _eval(n.right, scope) or 0
-        return {ast.Add: a + b, ast.Sub: a - b, ast.Mult: a * b}.get(type(n.op), a / b if b else 0)
+        a, b = _eval(n.left, scope), _eval(n.right, scope)
+        if a is None or b is None:
+            return None
+        try:
+            if isinstance(n.op, ast.Div):
+                return a / b if b else None
+            return {ast.Add: lambda: a + b, ast.Sub: lambda: a - b, ast.Mult: lambda: a * b}[type(n.op)]()
+        except TypeError:
+            return None
     if isinstance(n, ast.Call):
-        v = _eval(n.args[0], scope)
-        return len(v) if v is not None else 0
+        return FUNCS[n.func.id](*[_eval(a, scope) for a in n.args])
     if isinstance(n, ast.Compare):
         left = _eval(n.left, scope)
-        for op, comp in zip(n.ops, n.comparators):
+        for op, comp in zip(n.ops, n.comparators, strict=True):
             right = _eval(comp, scope)
-            try:
-                ok = {ast.Eq: lambda: left == right, ast.NotEq: lambda: left != right,
-                      ast.Lt: lambda: left < right, ast.LtE: lambda: left <= right,
-                      ast.Gt: lambda: left > right, ast.GtE: lambda: left >= right,
-                      ast.In: lambda: left in (right or []), ast.NotIn: lambda: left not in (right or []),
-                      ast.Is: lambda: left is right, ast.IsNot: lambda: left is not right}[type(op)]()
-            except TypeError:
-                ok = False                 # e.g. None < 5 -> condition is simply false
-            if not ok:
+            if not _compare(op, left, right):
                 return False
             left = right
         return True
@@ -167,3 +211,30 @@ def value_refs(value) -> list[list[str]]:
         for v in value:
             out += value_refs(v)
     return out
+
+
+def _compare(op: ast.cmpop, left, right) -> bool:
+    try:
+        if isinstance(op, ast.Eq):
+            return left == right
+        if isinstance(op, ast.NotEq):
+            return left != right
+        if isinstance(op, ast.Lt):
+            return left < right
+        if isinstance(op, ast.LtE):
+            return left <= right
+        if isinstance(op, ast.Gt):
+            return left > right
+        if isinstance(op, ast.GtE):
+            return left >= right
+        if isinstance(op, ast.In):
+            return left in (right or [])
+        if isinstance(op, ast.NotIn):
+            return left not in (right or [])
+        if isinstance(op, ast.Is):
+            return left is right
+        if isinstance(op, ast.IsNot):
+            return left is not right
+    except TypeError:
+        return False                   # e.g. None < 5 -> the condition is simply false
+    raise ExprError(f"unsupported comparison {type(op).__name__}")
