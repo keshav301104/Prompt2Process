@@ -1687,7 +1687,7 @@ def scan_pdf(clean_pdf: bytes, seed: int, angle: float) -> bytes:
     """Turn a clean invoice into an image-only 'scanned' PDF: rotated, toned paper, noise, slight blur."""
     src = pymupdf.open(stream=clean_pdf, filetype="pdf")
     pix = src[0].get_pixmap(dpi=150)
-    img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+    img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB")
     src.close()
     rs = np.random.default_rng(seed)
     arr = np.asarray(img).astype(np.float32)
@@ -2403,7 +2403,7 @@ def generate(out_dir: pathlib.Path, seed: int = 42) -> dict:
     render_sop_pdf(AP_SOP_MD, sop_dir / "accounts_payable_sop.pdf", "KAF-FIN-SOP-004", "3.1", "#1E3A8A")
     render_sop_pdf(COLLECTIONS_SOP_MD, sop_dir / "collections_sop.pdf", "KAF-FIN-SOP-007", "2.0", "#0F766E")
 
-    def counts(lst, key):
+    def counts(lst: list[dict], key: str) -> dict[str, int]:
         out: dict[str, int] = {}
         for inv in lst:
             vals = inv[key] if isinstance(inv[key], list) else [inv[key]]
