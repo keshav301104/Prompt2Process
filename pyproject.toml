@@ -1,0 +1,28 @@
+[project]
+name = "prompt2process"
+version = "0.1.0"
+description = "Turn any SOP into a digital employee: compile, check, run and audit back-office processes with Gemma 4 + LangGraph."
+requires-python = ">=3.11"
+license = "MIT"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "C4", "SIM", "RUF", "PERF", "FURB"]
+ignore = [
+  "B008",     # FastAPI's File()/Form() in defaults is the documented pattern
+  "RUF001", "RUF002", "RUF003",  # ₹, –, × etc. are intentional in Indian-format strings
+  "SIM108",   # ternaries are not always clearer
+  "SIM102",   # nested ifs often read better than one long condition
+  "PERF401",  # explicit loops kept where they are clearer than comprehensions
+  "E501",     # long prompt / message strings; the formatter handles code width
+]
+
+[tool.ruff.lint.per-file-ignores]
+"backend/app/seed/*" = ["E501"]   # synthetic data tables
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
