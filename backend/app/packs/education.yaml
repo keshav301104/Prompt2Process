@@ -1,0 +1,95 @@
+id: education
+sector: Education
+department: Scholarships Office
+employee: {name: Vidya, title: "Scholarship Verification Officer", color: "#7C3AED"}
+keywords: [scholarship, student, cgpa, marksheet, income certificate, roll number, merit, committee]
+intake: {type: cases, path: cases/education}
+evaluation: {type: cases, path: cases/education, min_tasks: 10}
+directory:
+  - {key: scholarship_committee, role: Scholarship Committee chair}
+case_noun: scholarship application
+contact: {name: application.student_name, email: application.email, language: application.language}
+
+documents:
+  application:
+    title: Scholarship application
+    required: true
+    fields:
+      student_name: {label: "Student Name", key: true}
+      roll_number: {label: "Roll Number", key: true, show: true}
+      programme: {label: "Programme", show: true}
+      email: {label: "Email"}
+      language: {label: "Preferred Language"}
+      declared_cgpa: {label: "Declared CGPA", type: number}
+      declared_income: {label: "Declared Annual Family Income", type: number}
+  marksheet:
+    title: Official marksheet
+    required: true
+    fields:
+      student_name: {label: "Student Name"}
+      roll_number: {label: "Roll Number"}
+      cgpa: {label: "CGPA", type: number, key: true, show: true}
+      backlogs: {label: "Backlogs", type: number, show: true}
+  income_certificate:
+    title: Income certificate
+    required: true
+    fields:
+      student_name: {label: "Student Name"}
+      annual_income: {label: "Annual Family Income", type: number, key: true, show: true}
+      issued_by: {label: "Issued By"}
+      valid_until: {label: "Valid Until", type: date, show: true}
+
+ids:
+  - {path: application.email, kind: email, label: "Student email", required: false}
+
+compare:
+  - {a: application.student_name, b: marksheet.student_name, kind: name, issue: name_mismatch, message: "Student name differs between the application and the marksheet."}
+  - {a: application.roll_number, b: marksheet.roll_number, kind: exact, issue: roll_mismatch, message: "Roll number on the application does not match the marksheet."}
+  - {a: application.declared_cgpa, b: marksheet.cgpa, kind: number, tolerance: 0.0, issue: cgpa_misdeclared, severity: critical, message: "CGPA declared on the application does not match the official marksheet."}
+  - {a: application.declared_income, b: income_certificate.annual_income, kind: number, tolerance: 0.05, issue: income_mismatch, message: "Declared family income differs from the income certificate."}
+
+formulas:
+  certificate_days_left: days_between(today(), income_certificate.valid_until)
+
+rules:
+  - {id: merit, check: "marksheet.cgpa >= 8.0", issue: low_cgpa, message: "CGPA is below the 8.0 merit requirement."}
+  - {id: backlogs, check: "marksheet.backlogs == 0", issue: has_backlogs, message: "Student has active backlogs."}
+  - {id: means, check: "income_certificate.annual_income <= 800000", issue: income_above_limit, message: "Family income is above the Rs. 8 lakh limit."}
+  - {id: certificate, check: "certificate_days_left >= 0", issue: certificate_expired, message: "The income certificate has expired."}
+
+decision:
+  - {route: human_review, when: "'injection' in issues or 'cgpa_misdeclared' in issues or 'roll_mismatch' in issues or 'name_mismatch' in issues or 'income_mismatch' in issues", reason: "Application details disagree with official documents."}
+  - {route: request_documents, when: "'missing_documents' in issues or 'certificate_expired' in issues", reason: "A required document is missing or expired."}
+  - {route: reject, when: "'low_cgpa' in issues or 'has_backlogs' in issues or 'income_above_limit' in issues", reason: "Does not meet the merit-cum-means criteria."}
+default_route: recommend
+
+routes:
+  recommend:
+    label: Recommend to committee
+    outcome: Eligible — recommended to the scholarship committee
+    message: {purpose: "update that the scholarship application is eligible and recommended", facts: "Your application (roll {fields.application.roll_number}) meets the merit-cum-means criteria and has been recommended to the scholarship committee."}
+  request_documents:
+    label: Request documents
+    outcome: Waiting for documents
+    message: {purpose: "request for missing or expired documents", facts: "Please upload: {missing}. {reason}"}
+  reject:
+    label: Not eligible
+    outcome: Not eligible this cycle
+    message: {purpose: "kind explanation that the student is not eligible this cycle", facts: "Thank you for applying. This cycle the application is not eligible because: {reason}"}
+  human_review: {label: "Human review"}
+
+approval: {route: recommend, when: "true", approvers: [scholarship_committee], reason: "Every recommendation is ratified by the scholarship committee."}
+
+questions:
+  - {id: q2, question: "Is the income limit Rs. 8 lakh per year for all programmes?", why: "The SOP mentions programme-specific schemes.", suggested: "Yes — Rs. 8,00,000 for all programmes"}
+
+sop: |
+  # SOP — Merit-cum-Means Scholarship Verification (KVU-SCH-003 v1.4)
+  **Owner:** Scholarships Office
+
+  1. An application needs the scholarship form, the official marksheet and a valid income certificate. Missing or expired documents must be requested from the student.
+  2. Name, roll number and CGPA on the form must match the official marksheet. Any mismatch is referred to a human verifier.
+  3. Eligibility: CGPA of 8.0 or above, no active backlogs, and annual family income up to Rs. 8,00,000.
+  4. Declared income must match the income certificate within 5%.
+  5. Eligible applications are recommended to the committee, which ratifies every award.
+  6. Ineligible students receive a kind explanation in their preferred language.

@@ -1,0 +1,38 @@
+id: collections
+sector: Finance & Accounting
+department: Receivables
+case_noun: overdue customer
+employee: {name: Arjun, title: "Collections Executive", color: "#0E9F6E"}
+keywords: [overdue, collection, reminder, receivable, dunning, payment promise, days past due, ageing]
+intake: {type: ledger, path: ar_ledger.csv, key: customer_id, title: "{name} · {invoice_no}"}
+evaluation: {type: shadow}
+directory:
+  - {key: sales_manager, role: Sales Manager}
+
+parameters:
+  level1_days: 7
+  level2_days: 15
+  level3_days: 30
+  follow_up_in_days: 7
+
+questions:
+  - {id: call_risk, question: "What late-payment risk should trigger a personal phone call instead of only an email?", why: "The SOP says 'high risk' without a number.", suggested: "Late-payment risk of 70% or more"}
+
+plan:
+  name: Collections — overdue receivables follow-up
+  description: For each overdue customer, score late-payment risk, pick the reminder level from the SOP ladder, draft in the customer's language, escalate high-risk / final notices, send and log.
+  steps:
+    - {id: s1, title: "Load customer & invoice", action: load_customer, params: {customer_id: $task.customer_id}}
+    - {id: s2, title: "Score late-payment risk", action: score_payment_risk, params: {customer: $s1}}
+    - {id: s3, title: "Choose reminder level (SOP ladder)", action: choose_reminder_level, params: {days_overdue: $s1.days_overdue, last_level: $s1.last_reminder_level, level1_days: "{{level1_days}}", level2_days: "{{level2_days}}", level3_days: "{{level3_days}}"}}
+    - {id: s4, title: "Draft reminder in customer's language", action: draft_reminder, when: "s3.level > 0", params: {customer: $s1, level: $s3.level, language: $s1.language}, on_error: {retry: 2}}
+    - {id: s5, title: "Escalate high-risk / final notice", action: escalate_to_human, when: "s3.level > 0 and (s2.label == 'high' or s3.level >= 3)", params: {reason: "Level ${s3.level} reminder for ${s1.name}, Rs. ${s1.amount} overdue ${s1.days_overdue} days, risk ${s2.label}. ${s2.top_factors}. Escalation contact: ${org.people.sales_manager}", suggested_decision: "Call the customer, then approve to send the draft."}}
+    - {id: s6, title: "Send reminder", action: send_reminder, when: "s3.level > 0", params: {to: $s1.email, subject: $s4.subject, body: $s4.body}}
+    - {id: s7, title: "Log follow-up", action: log_followup, when: "s3.level > 0", params: {customer_id: $s1.customer_id, level: $s3.level, follow_up_in_days: "{{follow_up_in_days}}"}}
+
+sop: |
+  # SOP — Receivables: Overdue Customer Follow-up
+  1. Send a friendly level-1 reminder at 7+ days overdue, a firm level-2 reminder at 15+ days and a level-3 final notice at 30+ days; never skip a level.
+  2. Write in the customer's preferred language (English, Hindi or Telugu). Never threaten or shame.
+  3. Final notices and customers with a high late-payment risk are escalated to the Sales Manager for a personal call.
+  4. Log every reminder and schedule the next follow-up.

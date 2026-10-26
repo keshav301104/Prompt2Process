@@ -1,0 +1,107 @@
+id: healthcare
+sector: Healthcare & Insurance
+department: Claims (TPA)
+employee: {name: Asha, title: "Claim Pre-Auditor", color: "#DB2777"}
+keywords: [claim, hospital, patient, policy, sum insured, discharge, room rent, tpa, insurance]
+intake: {type: cases, path: cases/healthcare}
+evaluation: {type: cases, path: cases/healthcare, min_tasks: 10}
+directory:
+  - {key: medical_officer, role: Medical Officer}
+case_noun: insurance claim
+contact: {name: claim_form.patient_name, email: claim_form.email, language: claim_form.language}
+
+documents:
+  claim_form:
+    title: Claim form
+    required: true
+    fields:
+      patient_name: {label: "Patient Name", key: true}
+      policy_number: {label: "Policy Number", key: true, show: true}
+      email: {label: "Email"}
+      language: {label: "Preferred Language"}
+      hospital: {label: "Hospital", show: true}
+      policy_valid_from: {label: "Policy Valid From", type: date}
+      policy_valid_to: {label: "Policy Valid To", type: date}
+      sum_insured: {label: "Sum Insured", type: number, show: true}
+      already_claimed: {label: "Already Claimed This Year", type: number}
+      admission_date: {label: "Admission Date", type: date}
+      discharge_date: {label: "Discharge Date", type: date}
+  hospital_bill:
+    title: Final hospital bill
+    required: true
+    fields:
+      patient_name: {label: "Patient Name"}
+      room_rent_per_day: {label: "Room Rent per Day", type: number}
+      days: {label: "Days Admitted", type: number}
+      room_charges: {label: "Room Charges", type: number}
+      medicines: {label: "Medicines", type: number}
+      consumables: {label: "Consumables", type: number}
+      procedure_charges: {label: "Procedure Charges", type: number}
+      total_bill: {label: "Total Bill", type: number, key: true, show: true}
+  discharge_summary:
+    title: Discharge summary
+    required: true
+    fields:
+      patient_name: {label: "Patient Name"}
+      diagnosis: {label: "Diagnosis", show: true}
+      admission_date: {label: "Admission Date", type: date}
+      discharge_date: {label: "Discharge Date", type: date}
+
+compare:
+  - {a: claim_form.patient_name, b: hospital_bill.patient_name, kind: name, issue: name_mismatch, message: "Patient name differs between the claim form and the bill."}
+  - {a: claim_form.patient_name, b: discharge_summary.patient_name, kind: name, issue: name_mismatch, message: "Patient name differs between the claim form and the discharge summary."}
+  - {a: claim_form.admission_date, b: discharge_summary.admission_date, kind: exact, issue: date_mismatch, message: "Admission date differs between the claim form and the discharge summary."}
+
+formulas:
+  room_cap: claim_form.sum_insured * 0.01
+  room_excess: max(0, (hospital_bill.room_rent_per_day - room_cap) * hospital_bill.days)
+  payable: hospital_bill.total_bill - hospital_bill.consumables - room_excess
+  remaining_cover: claim_form.sum_insured - claim_form.already_claimed
+  days_into_policy: days_between(claim_form.policy_valid_from, claim_form.admission_date)
+  days_left_in_policy: days_between(claim_form.admission_date, claim_form.policy_valid_to)
+  bill_difference: hospital_bill.room_charges + hospital_bill.medicines + hospital_bill.consumables + hospital_bill.procedure_charges - hospital_bill.total_bill
+
+rules:
+  - {id: policy_period, check: "days_into_policy >= 0 and days_left_in_policy >= 0", issue: outside_policy_period, severity: critical, message: "Admission is outside the policy period."}
+  - {id: room_cap, check: "hospital_bill.room_rent_per_day <= room_cap", issue: room_rent_above_cap, severity: info, message: "Room rent above 1% of sum insured — excess deducted."}
+  - {id: consumables, check: "hospital_bill.consumables == 0", issue: non_payable_items, severity: info, message: "Consumables are non-payable — deducted."}
+  - {id: cover, check: "payable <= remaining_cover", issue: exceeds_sum_insured, message: "Payable amount exceeds the remaining sum insured."}
+  - {id: bill_math, check: "abs(bill_difference) < 1", issue: bill_total_mismatch, message: "Bill line items do not add up to the total."}
+
+decision:
+  - {route: human_review, when: "'injection' in issues or 'name_mismatch' in issues or 'date_mismatch' in issues or 'bill_total_mismatch' in issues", reason: "Documents disagree — needs a medical auditor."}
+  - {route: query_hospital, when: "'missing_documents' in issues", reason: "Required claim documents are missing."}
+  - {route: reject, when: "'outside_policy_period' in issues", reason: "Treatment falls outside the policy period."}
+  - {route: human_review, when: "'exceeds_sum_insured' in issues", reason: "Claim exceeds the remaining cover."}
+default_route: approve_claim
+
+routes:
+  approve_claim:
+    label: Approve claim
+    outcome: "Approved for settlement: Rs. {metrics.payable}"
+    message: {purpose: "claim approval notice with deductions explained", facts: "Your claim on policy {fields.claim_form.policy_number} is approved for Rs. {metrics.payable} (bill Rs. {fields.hospital_bill.total_bill}; non-payable consumables and room-rent excess deducted as per policy)."}
+  query_hospital:
+    label: Query hospital
+    outcome: Query raised for missing documents
+    message: {purpose: "query asking for the missing claim documents", facts: "To process the claim we need: {missing}."}
+  reject:
+    label: Repudiate
+    outcome: Repudiated — outside policy period
+    message: {purpose: "respectful claim repudiation letter", facts: "We regret that the claim cannot be admitted. Reason: {reason}"}
+  human_review: {label: "Medical auditor review"}
+
+approval: {route: approve_claim, when: "payable >= 200000", approvers: [medical_officer], reason: "Settlements of Rs. 2 lakh and above need a medical officer's approval."}
+
+questions:
+  - {id: q2, question: "Should room-rent excess be deducted proportionally or only the excess rent?", why: "The SOP says 'deduct as per policy'.", suggested: "Only the excess rent above 1% of sum insured per day"}
+
+sop: |
+  # SOP — Cashless/Reimbursement Claim Pre-Audit (SHT-CLM-007 v2.3)
+  **Owner:** Claims
+
+  1. A claim needs the claim form, the final hospital bill and the discharge summary; otherwise query the hospital.
+  2. Patient name and admission date must match across all documents.
+  3. Admission must fall within the policy period, otherwise the claim is repudiated.
+  4. Room rent is capped at 1% of the sum insured per day; the excess is deducted. Consumables are non-payable.
+  5. The payable amount must not exceed the remaining sum insured; bill items must add up to the total.
+  6. Settlements of Rs. 2,00,000 and above require the Medical Officer's approval.

@@ -1,0 +1,91 @@
+id: hr
+sector: Human Resources
+department: People Operations
+employee: {name: Neha, title: "Onboarding Coordinator", color: "#059669"}
+keywords: [onboarding, candidate, joining, offer, employee, hr, payroll, induction, new hire]
+intake: {type: cases, path: cases/hr}
+evaluation: {type: cases, path: cases/hr, min_tasks: 8}
+case_noun: new-joiner file
+contact: {name: offer_acceptance.candidate_name, email: offer_acceptance.email, language: offer_acceptance.language}
+
+documents:
+  offer_acceptance:
+    title: Signed offer acceptance
+    required: true
+    fields:
+      candidate_name: {label: "Candidate Name", key: true}
+      email: {label: "Email"}
+      language: {label: "Preferred Language"}
+      role: {label: "Role", show: true}
+      department: {label: "Department", show: true}
+      joining_date: {label: "Joining Date", type: date, show: true}
+      annual_ctc: {label: "Annual CTC", type: number}
+      signed: {label: "Signed", type: bool, show: true}
+  id_proof:
+    title: ID proof (PAN)
+    required: true
+    fields:
+      name: {label: "Name"}
+      pan: {label: "PAN", key: true}
+  education_certificate:
+    title: Highest education certificate
+    required: true
+    fields:
+      name: {label: "Name"}
+      degree: {label: "Degree", show: true}
+      university: {label: "University"}
+  bank_details:
+    title: Bank details for payroll
+    required: true
+    fields:
+      account_holder: {label: "Account Holder"}
+      account_number: {label: "Account Number"}
+      ifsc: {label: "IFSC", key: true}
+
+ids:
+  - {path: id_proof.pan, kind: pan, label: "PAN", severity: critical}
+  - {path: bank_details.ifsc, kind: ifsc, label: "Bank IFSC"}
+  - {path: offer_acceptance.email, kind: email, label: "Email", required: false}
+
+compare:
+  - {a: offer_acceptance.candidate_name, b: id_proof.name, kind: name, issue: name_mismatch, message: "Name on the ID proof differs from the offer."}
+  - {a: offer_acceptance.candidate_name, b: education_certificate.name, kind: name, issue: name_mismatch, message: "Name on the education certificate differs from the offer."}
+  - {a: offer_acceptance.candidate_name, b: bank_details.account_holder, kind: name, issue: name_mismatch, message: "Bank account holder differs from the candidate."}
+
+rules:
+  - {id: signed, check: "offer_acceptance.signed == true", issue: offer_not_signed, message: "The offer acceptance is not signed."}
+
+decision:
+  - {route: human_review, when: "'injection' in issues or 'name_mismatch' in issues or 'invalid_pan' in issues", reason: "Identity details need HR verification."}
+  - {route: request_documents, when: "'missing_documents' in issues or 'offer_not_signed' in issues or 'invalid_ifsc' in issues", reason: "Joining documents are incomplete."}
+default_route: ready_to_onboard
+
+routes:
+  ready_to_onboard:
+    label: Start onboarding
+    outcome: Onboarding started — IT and payroll requests raised
+    message: {purpose: "warm welcome email with day-one details", facts: "Welcome aboard as {fields.offer_acceptance.role} in {fields.offer_acceptance.department}! Your joining date is {fields.offer_acceptance.joining_date}. Your laptop and email account are being prepared."}
+  request_documents:
+    label: Request documents
+    outcome: Waiting for joining documents
+    message: {purpose: "friendly request for pending joining documents", facts: "To complete your joining formalities we still need: {missing} {reason}"}
+  human_review: {label: "HR review"}
+
+requests:
+  route: ready_to_onboard
+  items:
+    - {team: IT, request: "Laptop + email account for {fields.offer_acceptance.candidate_name} ({fields.offer_acceptance.role}), joining {fields.offer_acceptance.joining_date}"}
+    - {team: Payroll, request: "Add {fields.offer_acceptance.candidate_name} to payroll from {fields.offer_acceptance.joining_date}, CTC Rs. {fields.offer_acceptance.annual_ctc}"}
+
+questions:
+  - {id: q2, question: "Should a mismatched bank account holder block onboarding?", why: "Ambiguous in the SOP.", suggested: "Yes — HR verifies before payroll setup"}
+
+sop: |
+  # SOP — New Joiner Onboarding (KAF-HR-002 v1.2)
+  **Owner:** People Operations
+
+  1. Collect the signed offer acceptance, PAN as ID proof, the highest education certificate and bank details for payroll.
+  2. The candidate's name must match on every document; PAN and IFSC must be valid.
+  3. If anything is missing or unsigned, write to the candidate listing exactly what is pending.
+  4. When complete, raise an IT request (laptop + email) and a payroll request, and send a welcome email with day-one details.
+  5. Identity mismatches go to an HR executive for verification.

@@ -1,0 +1,97 @@
+id: retail
+sector: Retail & E-commerce
+department: Customer Returns
+employee: {name: Ravi, title: "Returns & Refunds Agent", color: "#EA580C"}
+keywords: [return request, refund, replacement, damaged, return window, delivery date, order id, rma]
+intake: {type: cases, path: cases/retail}
+evaluation: {type: cases, path: cases/retail, min_tasks: 10}
+directory:
+  - {key: returns_supervisor, role: Returns Supervisor}
+case_noun: return request
+contact: {name: return_request.customer_name, email: return_request.email, language: return_request.language}
+
+documents:
+  return_request:
+    title: Return request
+    required: true
+    fields:
+      order_id: {label: "Order ID", key: true, show: true}
+      customer_name: {label: "Customer Name", key: true}
+      email: {label: "Email"}
+      language: {label: "Preferred Language"}
+      product: {label: "Product", show: true}
+      category: {label: "Category"}
+      order_value: {label: "Order Value", type: number, key: true, show: true}
+      delivered_on: {label: "Delivered On", type: date}
+      requested_on: {label: "Return Requested On", type: date}
+      reason: {label: "Reason", show: true}
+      returns_last_90_days: {label: "Returns in Last 90 Days", type: number}
+  order_invoice:
+    title: Order invoice
+    required: true
+    fields:
+      order_id: {label: "Order ID"}
+      customer_name: {label: "Customer Name"}
+      order_value: {label: "Order Value", type: number}
+
+compare:
+  - {a: return_request.order_id, b: order_invoice.order_id, kind: exact, issue: order_mismatch, message: "The return does not match the order invoice."}
+  - {a: return_request.order_value, b: order_invoice.order_value, kind: number, tolerance: 0.01, issue: amount_mismatch, message: "Claimed order value differs from the invoice."}
+
+formulas:
+  days_since_delivery: days_between(return_request.delivered_on, return_request.requested_on)
+
+classify:
+  text: return_request.reason
+  labels: [damaged, wrong_item, size_issue, changed_mind]
+  hints:
+    damaged: [damaged, broken, cracked, crushed, torn, defective, not working, dead]
+    wrong_item: [wrong, different, instead, not what i ordered]
+    size_issue: [size, small, large, fit, tight, loose]
+    changed_mind: [no longer, changed my mind, not needed, don't need, better price]
+
+image: {question: "Is the product in this photo visibly damaged or broken?", when_label: damaged}
+
+rules:
+  - {id: window, check: "days_since_delivery <= 10", issue: outside_return_window, message: "Return requested after the 10-day window."}
+  - {id: abuse, check: "return_request.returns_last_90_days < 4", issue: frequent_returner, message: "4 or more returns in 90 days — possible return abuse."}
+  - {id: category, check: "return_request.category not in ['Innerwear', 'Perishables']", issue: non_returnable, message: "This category is not returnable."}
+
+decision:
+  - {route: human_review, when: "'injection' in issues or 'frequent_returner' in issues or 'order_mismatch' in issues or 'amount_mismatch' in issues", reason: "Needs a human look before any refund."}
+  - {route: reject, when: "'outside_return_window' in issues or 'non_returnable' in issues", reason: "Not eligible under the return policy."}
+  - {route: human_review, when: "reason == 'damaged' and photo != 'yes'", reason: "Damage claim not confirmed by a photo."}
+  - {route: replace, when: "reason in ['wrong_item', 'size_issue']", reason: "Wrong item or size — replacement."}
+default_route: refund
+
+routes:
+  refund:
+    label: Refund
+    outcome: Refund issued to original payment method
+    message: {purpose: "confirmation that the refund has been issued", facts: "Your return for order {fields.return_request.order_id} ({fields.return_request.product}) is approved. A refund of Rs. {fields.return_request.order_value} has been issued to your original payment method."}
+  replace:
+    label: Replace
+    outcome: Replacement dispatched
+    message: {purpose: "confirmation that a replacement is on the way", facts: "We are sending a replacement for order {fields.return_request.order_id} ({fields.return_request.product}). Pickup of the original item is scheduled."}
+  reject:
+    label: Decline return
+    outcome: Return declined under policy
+    message: {purpose: "polite explanation that the return cannot be accepted", facts: "We are unable to accept the return for order {fields.return_request.order_id}. Reason: {reason}"}
+  human_review: {label: "Human review"}
+
+approval: {route: refund, when: "return_request.order_value >= 20000", approvers: [returns_supervisor], reason: "Refunds of Rs. 20,000 and above need supervisor approval."}
+refund: {route: refund, amount: return_request.order_value, reference: return_request.order_id, to: return_request.customer_name}
+
+questions:
+  - {id: q2, question: "For damage claims, is a photo mandatory?", why: "The SOP says photos are 'preferred'.", suggested: "Yes — no photo means human review"}
+
+sop: |
+  # SOP — Returns & Refunds (BK-CX-021 v3.0)
+  **Owner:** Customer Experience
+
+  1. Returns are accepted within 10 days of delivery. Innerwear and perishables are not returnable.
+  2. The return request must match the order invoice (order ID and value).
+  3. Damaged items need a photo; the damage must be visible. Without a confirmed photo, a human checks the claim.
+  4. Wrong item or wrong size gets a replacement; other eligible returns get a refund to the original payment method.
+  5. Refunds of Rs. 20,000 or more need the Returns Supervisor's approval.
+  6. Customers with 4 or more returns in 90 days are reviewed by a human for possible abuse.

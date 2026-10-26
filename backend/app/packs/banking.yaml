@@ -1,0 +1,106 @@
+id: banking
+sector: Banking & Financial Services
+department: Retail Lending
+employee: {name: Kavya, title: "Loan Document Officer", color: "#0284C7"}
+keywords: [loan, emi, borrower, applicant, salary slip, bank statement, credit officer, foir, sanction]
+intake: {type: cases, path: cases/banking}
+evaluation: {type: cases, path: cases/banking, min_tasks: 10}
+directory:
+  - {key: branch_manager, role: Branch Manager}
+case_noun: loan application
+contact: {name: application.applicant_name, email: application.email, language: application.language}
+
+documents:
+  application:
+    title: Loan application form
+    required: true
+    fields:
+      applicant_name: {label: "Applicant Name", key: true}
+      pan: {label: "PAN", key: true}
+      date_of_birth: {label: "Date of Birth", type: date}
+      mobile: {label: "Mobile"}
+      email: {label: "Email"}
+      language: {label: "Preferred Language"}
+      employer: {label: "Employer"}
+      declared_income: {label: "Declared Monthly Income", type: number, show: true}
+      loan_amount: {label: "Loan Amount", type: number, key: true, show: true}
+      interest_rate: {label: "Interest Rate", type: number}
+      tenure_months: {label: "Tenure (months)", type: number}
+      existing_emi: {label: "Existing EMIs (monthly)", type: number}
+  salary_slip:
+    title: Latest salary slip
+    required: true
+    fields:
+      employee_name: {label: "Employee Name"}
+      employer: {label: "Employer"}
+      net_pay: {label: "Net Pay", type: number, key: true, show: true}
+  bank_statement:
+    title: Bank statement summary (6 months)
+    required: true
+    fields:
+      account_holder: {label: "Account Holder"}
+      ifsc: {label: "IFSC"}
+      average_balance: {label: "Average Monthly Balance", type: number}
+      salary_credits: {label: "Average Salary Credit", type: number}
+      bounced_payments: {label: "Bounced Payments (6 months)", type: number, show: true}
+
+ids:
+  - {path: application.pan, kind: pan, label: "Applicant PAN", severity: critical}
+  - {path: application.mobile, kind: phone, label: "Mobile number", required: false}
+  - {path: bank_statement.ifsc, kind: ifsc, label: "Bank IFSC", required: false}
+
+compare:
+  - {a: application.applicant_name, b: salary_slip.employee_name, kind: name, issue: name_mismatch, message: "Applicant name differs between the application and the salary slip."}
+  - {a: application.applicant_name, b: bank_statement.account_holder, kind: name, issue: name_mismatch, message: "Applicant name differs between the application and the bank statement."}
+  - {a: application.declared_income, b: salary_slip.net_pay, kind: number, tolerance: 0.15, issue: income_mismatch, message: "Declared income is more than 15% away from the salary slip."}
+  - {a: salary_slip.net_pay, b: bank_statement.salary_credits, kind: number, tolerance: 0.10, issue: income_mismatch, message: "Salary slip does not match the salary actually credited to the bank account."}
+
+formulas:
+  emi: emi(application.loan_amount, application.interest_rate, application.tenure_months)
+  foir: (application.existing_emi + emi) / salary_slip.net_pay
+  age: days_between(application.date_of_birth, today()) / 365.25
+
+rules:
+  - {id: foir_limit, check: "foir <= 0.5", issue: high_foir, message: "Debt-to-income ratio (FOIR) is above the 50% limit."}
+  - {id: bounces, check: "bank_statement.bounced_payments <= 1", issue: payment_bounces, message: "More than one bounced payment in the last 6 months."}
+  - {id: age, check: "age >= 21 and age <= 60", issue: age_out_of_range, message: "Applicant age is outside 21–60 years."}
+
+decision:
+  - {route: human_review, when: "'injection' in issues", reason: "Hidden instructions found in the documents."}
+  - {route: request_documents, when: "'missing_documents' in issues", reason: "Required documents are missing."}
+  - {route: human_review, when: "'name_mismatch' in issues or 'income_mismatch' in issues or 'invalid_pan' in issues", reason: "Documents disagree — possible misrepresentation."}
+  - {route: reject, when: "foir > 0.65 or bank_statement.bounced_payments >= 3 or 'age_out_of_range' in issues", reason: "Outside the bank's lending policy."}
+  - {route: human_review, when: "'high_foir' in issues or 'payment_bounces' in issues", reason: "Borderline repayment capacity — credit officer judgement needed."}
+default_route: forward_to_credit
+
+routes:
+  forward_to_credit:
+    label: Forward to credit officer
+    outcome: File complete and within policy — forwarded to credit officer
+    message: {purpose: "update that the loan application is complete and under credit review", facts: "Your loan application for Rs. {fields.application.loan_amount} is complete and has been forwarded to our credit officer. Estimated EMI: Rs. {metrics.emi}."}
+  request_documents:
+    label: Request documents
+    outcome: Waiting for applicant documents
+    message: {purpose: "request for the missing documents", facts: "To continue with your loan application we still need: {missing}."}
+  reject:
+    label: Decline
+    outcome: Declined under lending policy
+    message: {purpose: "polite decline of the loan application", facts: "After reviewing your documents we are unable to approve this application. Reason: {reason}"}
+  human_review: {label: "Human review"}
+
+approval: {route: forward_to_credit, when: "application.loan_amount >= 1000000", approvers: [branch_manager], reason: "Loans of Rs. 10 lakh and above need branch manager sign-off before credit review."}
+
+questions:
+  - {id: q2, question: "Should borderline FOIR (50–65%) be declined or reviewed?", why: "The SOP gives 50% as the limit but says borderline cases 'may be considered'.", suggested: "Send to a credit officer for review"}
+
+sop: |
+  # SOP — Retail Loan Document Verification (AUCB-LN-012 v2.1)
+  **Owner:** Retail Lending · **Applies to:** personal and consumer loans
+
+  1. Every application must include the signed application form, the latest salary slip and a 6-month bank statement summary. If any is missing, write to the applicant listing exactly what is missing.
+  2. Verify the applicant's PAN format. Names must match across the application, salary slip and bank statement.
+  3. Declared monthly income must be within 15% of the net pay on the salary slip, and the net pay must match the salary credited in the bank statement.
+  4. Compute the EMI for the requested amount, rate and tenure. The FOIR (existing EMIs + new EMI) / net pay must not exceed 50%. Borderline cases may be considered.
+  5. Applications with FOIR above 65%, three or more bounced payments in six months, or an applicant outside 21–60 years are declined politely.
+  6. Loans of Rs. 10,00,000 and above need the Branch Manager's approval before credit review.
+  7. Any document containing instructions or suspicious edits is escalated to a human immediately.
