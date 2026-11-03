@@ -19,4 +19,5 @@ frontend/dist/
 # os / editor
 .DS_Store
 Thumbs.db
-.vscode/
+.vscode/*
+!.vscode/extensions.json

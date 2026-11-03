@@ -84,7 +84,7 @@ Seven ready-made digital employees, all built from the same engine. A new one is
 13. [Sector templates](#sector-templates)
 14. [Built on open source](#built-on-open-source)
 15. [API overview](#api-overview)
-16. [Quick start](#quick-start-windows-powershell)
+16. [Quick start](#quick-start)
 17. [Deploy](#deploy-render)
 19. [Who buys it](#who-buys-it)
 20. [Limitations & roadmap](#limitations--roadmap)
@@ -406,15 +406,26 @@ Full reference: `API_SPEC.md`, or `/docs` on a running server.
 | Observability | `GET /api/overview` · `GET /api/audit` · `GET /api/outputs` · `GET /api/llm/trace` · `GET /api/llm/models` · `GET /api/health` |
 | Settings | `GET/PUT /api/settings` · `GET /api/roles` · `GET /api/tools` |
 
-## Quick start (Windows PowerShell)
-Prerequisites: Python 3.12+, Node 22+, and a free Gemini API key from <https://aistudio.google.com/apikey>.
+## Quick start
+### Option A: Docker (one command, identical on every machine)
+Prerequisite: Docker Desktop.
+```powershell
+git clone https://github.com/keshav301104/Prompt2Process.git
+cd Prompt2Process
+Copy-Item .env.example .env      # put your GEMINI_API_KEY in .env (optional; without it the app runs offline)
+docker compose up --build        # http://localhost:8000 (API + console, exactly as deployed)
+```
+Demo data and the database live in Docker volumes, so they survive restarts. `docker compose down -v` wipes them.
+
+### Option B: Local development (Windows PowerShell)
+Prerequisites: Python 3.12 (see `.python-version`), Node 22 (see `.nvmrc`), and a free Gemini API key from <https://aistudio.google.com/apikey>. Contributors: see **[CONTRIBUTING.md](CONTRIBUTING.md)** for the dev tools, the checks to run and the branch workflow.
 
 ```powershell
 git clone https://github.com/keshav301104/Prompt2Process.git Prompt2Process
 cd Prompt2Process
 python -m venv .venv
 .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 Copy-Item .env.example .env      # then put your GEMINI_API_KEY in .env (never commit it)
 
 cd backend
@@ -424,7 +435,7 @@ uvicorn app.main:app --port 8000
 In a second terminal:
 ```powershell
 cd frontend
-npm install
+npm ci
 npm run dev                      # http://localhost:5173 (proxies /api to :8000)
 ```
 Open <http://localhost:5173> and either set up your company or click **Load demo workspace**. Then:

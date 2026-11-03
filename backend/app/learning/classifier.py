@@ -61,7 +61,7 @@ def train(employee_id: str) -> dict:
     )
     cv = None
     counts = np.unique(y, return_counts=True)[1]
-    k = int(min(5, counts.min()))
+    k = min(5, int(counts.min()))
     if k >= 2:
         cv = float(cross_val_score(pipe, X, y, cv=StratifiedKFold(k, shuffle=True, random_state=0)).mean())
     pipe.fit(X, y)

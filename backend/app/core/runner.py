@@ -13,6 +13,7 @@ import sqlite3
 import time
 from typing import Any, TypedDict
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
@@ -157,7 +158,10 @@ class Runner:
         g.add_edge(START, "step")
         g.add_conditional_edges("step", self._next, {"step": "step", END: END})
         self.graph = g.compile(checkpointer=saver)
-        self.config = {"configurable": {"thread_id": self.thread_id}, "recursion_limit": 4 * len(self.steps) + 20}
+        self.config: RunnableConfig = {
+            "configurable": {"thread_id": self.thread_id},
+            "recursion_limit": 4 * len(self.steps) + 20,
+        }
 
     # -------------------------------------------------------------- public
     def start(self) -> str:
@@ -166,7 +170,8 @@ class Runner:
             if not self.rec._step(s["id"]):
                 self.rec.step(s, "pending")
         self.rec.event("info", f"{self.employee.get('name')} started ({self._level_label()})")
-        self.graph.invoke({"pc": 0, "outputs": {}, "flags": [], "halted": None, "ai_calls": 0}, self.config)
+        initial: TaskState = {"pc": 0, "outputs": {}, "flags": [], "halted": None, "ai_calls": 0}
+        self.graph.invoke(initial, self.config)
         return self._after()
 
     def resume(self, decision: dict) -> str:

@@ -1,0 +1,5 @@
+# Everything in requirements.txt, plus the tools the checks (and CI) use.
+-r requirements.txt
+ruff==0.17.2
+mypy==2.4.0
+pytest==9.2.0

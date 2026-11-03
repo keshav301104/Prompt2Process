@@ -1,0 +1,28 @@
+# One command runs the whole product exactly as it runs on Render:
+#   docker compose up --build        ->  http://localhost:8000  (API + console)
+# Put GEMINI_API_KEY in .env (copy .env.example). Without a key it runs in offline mode.
+services:
+  app:
+    build: .
+    image: prompt2process:local
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      PORT: "8000"
+    volumes:
+      - p2p-data:/app/data     # generated demo documents
+      - p2p-state:/app/state   # SQLite database, LangGraph checkpoints, outputs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=5)"]
+      interval: 15s
+      timeout: 6s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  p2p-data:
+  p2p-state:

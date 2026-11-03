@@ -1,0 +1,10 @@
+# Normalise line endings so Windows, macOS and Linux (CI, Docker) see identical files.
+* text=auto
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.png binary
+*.jpg binary
+*.pdf binary
+*.ico binary

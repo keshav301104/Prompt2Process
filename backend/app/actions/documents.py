@@ -36,7 +36,7 @@ RENDER_DIR.mkdir(parents=True, exist_ok=True)
 def read_invoice(ctx: ExecContext, file: str) -> dict:
     path = co.safe_path(file)
     doc = pymupdf.open(path)
-    text = "\n".join(page.get_text() for page in doc)
+    text = "\n".join(page.get_text() for page in doc.pages())
     has_text = len(text.strip()) > 60
     image_path = ""
     if not has_text:
